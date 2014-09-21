@@ -1,44 +1,55 @@
-// floor(127 / 2) == 63.0
-// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is
-// stored in a byte (-128..127). we scale regular normals up to length 63, but
-// there are also "special" normals that have a bigger length (of up to 126 in
-// this case).
-// #define scale 63.0
 {{GLSL_VERSION}}
-#define scale 0.015873016
+{{GLSL_EXTENSIONS}}
+
+uniform float linewidth;
+uniform float shadow;
+uniform mat4 projection, view;
+
+{{in}} float vertex;
+
+{{out}} vec3 middle;
+{{out}} vec3 V;
+
+uniform sampler1D points;
 
 
-{{in}} vec2 a_pos;
-{{in}} vec2 a_extrude;
-{{in}} float a_linesofar;
-// matrix is for the vertex position, exmatrix is for rotating and projecting
-// the extrusion vector.
-uniform mat4 u_matrix;
-uniform mat4 u_exmatrix;
-// shared
-uniform float u_ratio;
-uniform vec2 u_linewidth;
-uniform vec4 u_color;
+void main(){
+    
 
+    int index = gl_InstanceID;
 
-{{out}} vec2 v_normal;
-{{out}} float v_linesofar;
+    vec3 A = texelFetch(points, index, 0).rgb;
+    vec3 B = texelFetch(points, index+1, 0).rgb;
 
-void main() {
-	// We store the texture normals in the most insignificant bit
-	// transform y so that 0 => -1 and 1 => 1
-	// In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap
-	// y is 1 if the normal points up, and -1 if it points down
-	vec2 normal = mod(a_pos, 2.0);
-	normal.y 	= sign(normal.y - 0.5);
-	v_normal 	= normal;
-	// Scale the extrusion vector down to a normal and then up by the line width
-	// of this vertex.
-	vec4 dist = vec4(u_linewidth.s * a_extrude * scale, 0.0, 0.0);
-	// Remove the texture normal bit of the position before scaling it with the
-	// model/view matrix. Add the extrusion vector *after* the model/view matrix
-	// because we're extruding the line in pixel space, regardless of the current
-	// tile's zoom level.
-	gl_Position = u_matrix * vec4(floor(a_pos * 0.5), 0.0, 1.0) + u_exmatrix * dist;
-	v_linesofar = a_linesofar * u_ratio;
+    vec3 diff       = A - B;
+    vec3 normal     = normalize(cross(diff, vec3(1,1,0))); // silly way of getting a normal vector, which later can be used for light calculation too
+    vec3 extrude    = normalize(cross(diff, normal));
+
+    float normal_length = linewidth + shadow;
+    vec3 scaled_extrude = extrude * normal_length;
+
+    // could be done differently, but this way you emit the points that you need without much memory.
+    if (vertex == 1)
+    {
+        middle  = A;
+        V       = A + (scaled_extrude/0.2);
+    }
+    if (vertex == 2)
+    {
+        middle  = A;
+        V       = A - (scaled_extrude/0.2);
+    }
+    if (vertex == 3)
+    {
+        middle  = B;
+        V       = B - (scaled_extrude/0.2);
+    }
+    if (vertex == 4)
+    {
+        middle  = B;
+        V       = B + (scaled_extrude/0.2);
+    }
+            
+
+    gl_Position = projection * view * vec4(V, 1.0);
 }

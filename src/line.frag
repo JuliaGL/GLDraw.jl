@@ -1,24 +1,21 @@
 {{GLSL_VERSION}}
 
-uniform vec2 u_linewidth;
-uniform vec4 u_color;
-uniform float u_blur;
-uniform vec2 u_dasharray;
 
-{{in}} vec2 v_normal;
-{{in}} float v_linesofar;
+{{in}} vec3 middle;
+{{in}} vec3 V;
 
+{{out}} vec4 fragment_color;
+{{out}} uvec2 fragment_objectid;
+
+float aastep(float threshold, float dist) {
+	float afwidth = 0.7 * length(vec2(dFdx(dist), dFdy(dist)));
+	return smoothstep(threshold - afwidth, threshold + afwidth, dist);
+}
 
 void main() {
-// Calculate the distance of the pixel from the line in pixels.
-	float dist = length(v_normal) * u_linewidth.s;
-	// Calculate the antialiasing fade factor. This is either when fading in
-	// the line in case of an offset line (v_linewidth.t) or when fading out
-	// (v_linewidth.s)
-	float alpha = clamp(min(dist - (u_linewidth.t - u_blur), u_linewidth.s - dist) / u_blur, 0.0, 1.0);
-	// Calculate the antialiasing fade factor based on distance to the dash.
-	// Only affects alpha when line is dashed
-	float pos = mod(v_linesofar, u_dasharray.x + u_dasharray.y);
-	alpha *= max(step(0.0, -u_dasharray.y), clamp(min(pos, u_dasharray.x - pos), 0.0, 1.0));
-	gl_FragColor = u_color * alpha;
+
+	float dist = length(middle - V)*10;
+	float alpha = aastep(0.93, dist);
+	fragment_color = vec4(1, 0, 0, 1-alpha);
+	fragment_objectid = uvec2(0); // not needed yet, but later for point selection and editing
 }
