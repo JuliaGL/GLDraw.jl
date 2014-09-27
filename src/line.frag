@@ -7,6 +7,8 @@
 {{out}} vec4 fragment_color;
 {{out}} uvec2 fragment_objectid;
 
+uniform float linewidth;
+
 float aastep(float threshold, float dist) {
 	float afwidth = 0.7 * length(vec2(dFdx(dist), dFdy(dist)));
 	return smoothstep(threshold - afwidth, threshold + afwidth, dist);
@@ -14,8 +16,8 @@ float aastep(float threshold, float dist) {
 
 void main() {
 
-	float dist = length(middle - V)*10;
-	float alpha = aastep(0.93, dist);
-	fragment_color = vec4(1, 0, 0, 1-alpha);
+	float dist = length(middle - V) / (linewidth/2);
+	float alpha = 1-aastep(0.99, dist);
+	fragment_color = vec4(dist,0,0, alpha);
 	fragment_objectid = uvec2(0); // not needed yet, but later for point selection and editing
 }
