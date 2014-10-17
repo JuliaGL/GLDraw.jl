@@ -2,20 +2,20 @@ using GLAbstraction, ModernGL, GLWindow, GLFW
 
 
 window 	= createwindow("GLPlot", 1500,1000, windowhints=[(GLFW.SAMPLES, 0)]) 
-ocamera = OrthographicCamera(window.inputs)
+ocamera = OrthographicPixelCamera(window.inputs)
 
 view = [
   "GLSL_EXTENSIONS"     => "#extension GL_ARB_draw_instanced : enable",
 ]
 
-points = Vec3[Vec3(sin(i), i, 0) for i=0:0.5:2pi]
+points = Vec3[Vec3(sin(i), i, 0) * 100f0 for i=0:0.5:2pi]
 
 data = [
 :vertex         	=> GLBuffer(Float32[1:4], 1), # simple quad
 :index          	=> indexbuffer(GLuint[0, 1, 2, 2, 3, 0]),
 
 :points 			=> Texture(points),
-:linewidth 			=> 0.05f0,
+:linewidth 			=> 20f0,
 :shadow 			=> 0.0f0,
 :projection			=> ocamera.projection,
 :view 				=> ocamera.view,
