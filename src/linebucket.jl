@@ -15,17 +15,59 @@ end
 
 typealias Coordinate Vector2{Int16} 
 
-function add{VertexType, }(buffer, x::VertexType, y::VertexType, ex::FloatingPoint, ey::FloatingPoint, tx::Int8, ty::Int8, linesofar::Int32) {
-    idx = length(buffer);
-    coords::Int16 = static_cast<int16_t *>(data);
-    coords[0] = (x * 2) | tx;
-    coords[1] = (y * 2) | ty;
-    int8_t *extrude = static_cast<int8_t *>(data);
-    extrude[4] = std::round(extrudeScale * ex);
-    extrude[5] = std::round(extrudeScale * ey);
-    coords[3] = linesofar;
-    return idx;
+immutable PointElement
+    x::Uint16
 end
+
+immutable Triangle{T <: Integer} # for this purpose uint16 is used
+    a::T
+    b::T
+    c::T
+end
+immutable LineEdge
+    x::Int16
+    y::Int16
+    ex::Int8
+    ey::Int8
+    linesofar1::Int8
+    linesofar2::Int8
+    const extrudeScale = Int8(63)
+    function LineEdge(x::Int16, y::Int16, ex::Float32, ey::Float32, tx::Int8, ty::Int8, linesofar::Int32)
+        new(
+            (x * 2) | tx,
+            (y * 2) | ty,
+            round(extrudeScale * ex),
+            round(extrudeScale * ey),
+            linesofar / 128,
+            linesofar % 128,
+        )
+    end
+end
+ 
+function add(buffer::Vector{LineEdge}, x::Int16, y::Int16, ex::Float32, ey::Float32, tx::Int8, ty::Int8, linesofar::Int32 = 0)
+    push!(buffer, LineEdge(x, y, ex, ey, tx, ty, linesofar))
+    return length(buffer)
+end
+function add{T}(buffer::Vector{Triangle{T}}, a::T, b::T, c::T)
+    push!(buffer, Triangle(a,b,c))
+    return length(buffer)
+end
+function add(buffer::Vector{PointElement}, a::Uint16)
+    push!(buffer, PointElement(a))
+    return length(buffer)
+end
+
+immutable ElementGroup{N, T}
+    array::NTuple{N, T}
+    vertex_length::Uint32
+    elements_length::Uint32
+
+    ElementGroup() = new(0, 0)
+    ElementGroup(vertex_length::Uint32, elements_length::Uint32) = new(vertex_length, elements_length)
+end
+const triangleGroups = Ptr{Triangle{Uint16}}[]
+const pointGroups    = Ptr{PointElement}[]
+
 
 function addGeometry(vertices) 
     # TODO: use roundLimit
@@ -68,10 +110,10 @@ function addGeometry(vertices)
         nextNormal      = normal(currentVertex, lastVertex)
     end
 
-    start_vertex = convert(Int32, vertexBuffer.index())
+    start_vertex = convert(Int32, length(vertexBuffer))
 
-    triangle_store
-    point_store
+    triangle_store  = Triangle{Uint16}[]
+    point_store     = PointElement[]
 
     for i=1:length(vertices)
 
@@ -146,55 +188,44 @@ function addGeometry(vertices)
         # Add offset square begin cap.
         if (!prevVertex && beginCap == CapType.Square) 
             # Add first vertex
-            e3::Int32 = vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    flip * (prevNormal[1] + prevNormal[2]), flip * (-prevNormal[1] + prevNormal[2]), # extrude normal
-                                   0, 0, distance) - start_vertex # texture normal
+                                   0, 0, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
+            e1 = e2 
+            e2 = e3
 
             # Add second vertex
-            e3::Int32 = vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    flip * (prevNormal[1] - prevNormal[2]), flip * (prevNormal[1] + prevNormal[2]), # extrude normal
-                                   0, 1, distance) - start_vertex # texture normal
+                                   0, 1, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
-            e1::Int32 = e2 
-            e2::Int32 = e3
-        end
-
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
+            e1 = e2 
+            e2 = e3
         # Add offset square end cap.
-        else if (!nextVertex && endCap == CapType.Square) 
+        elseif !nextVertex && endCap == CapType.Square
             # Add first vertex
-            e3::Int32 = (int32_t)vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    nextNormal[1] - flip * nextNormal[2], flip * nextNormal[1] + nextNormal[2], # extrude normal
-                                   0, 0, distance) - start_vertex # texture normal
+                                   0, 0, distance) - start_vertex)::Int32 # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
 
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            e1 = e2::Int32
+            e2 = e3::Int32
 
             # Add second vertex
-            e3::Int32 = (int32_t)vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    nextNormal[1] + flip * nextNormal[2], -flip * nextNormal[1] + nextNormal[2], # extrude normal
-                                   0, 1, distance) - start_vertex # texture normal
+                                   0, 1, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
-            e1::Int32 = e2 
-            e2::Int32 = e3
-        end
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
+            e1 = e2::Int32
+            e2 = e3::Int32
 
-        else if (currentJoin == JoinType.Miter) 
+        elseif currentJoin == JoinType.Miter
             # MITER JOIN
             if (abs(joinAngularity) < 0.01) 
                 # The two normals are almost parallel.
@@ -212,51 +243,48 @@ function addGeometry(vertices)
             end
 
             # Add first vertex
-            e3::Int32 = (int32_t)vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    flip * joinNormal[1], flip * joinNormal[2], # extrude normal
-                                   0, 0, distance) - start_vertex # texture normal
+                                   0, 0, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            e1 >= 0 && e2 >= 0 && e3 >= 0 && push!(triangle_store, Triangle(e1, e2, e3))
+
+            e1 = e2::Int32 
+            e2 = e3::Int32
 
             # Add second vertex
-            e3::Int32 = (int32_t)vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    -flip * joinNormal[1], -flip * joinNormal[2], # extrude normal
-                                   0, 1, distance) - start_vertex # texture normal
+                                   0, 1, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
 
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            e1 = e2::Int32 
+            e2 = e3::Int32
 
             if ((!prevVertex && beginCap == CapType.Round) ||
                     (!nextVertex && endCap == CapType.Round)) 
-                point_store.emplace_back(e1)
+                push!(point_store, PointElement(e1))
             end
         else 
             # Close up the previous line
             # Add first vertex
-            e3::Int32 = (int32_t)vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    flip * prevNormal[2], -flip * prevNormal[1], # extrude normal
-                                   0, 0, distance) - start_vertex # texture normal
+                                   0, 0, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) triangle_store.emplace_back(e1, e2, e3)
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
+            e1 = e2::Int32 
+            e2 = e3::Int32
 
             # Add second vertex.
-            e3 = (int32_t)vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    -flip * prevNormal[2], flip * prevNormal[1], # extrude normal
-                                   0, 1, distance) - start_vertex # texture normal
+                                   0, 1, distance) - start_vertex)::Int32  # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) triangle_store.emplace_back(e1, e2, e3)
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
+            e1 = e2::Int32 
+            e2 = e3::Int32
 
             prevNormal = Vector2(-nextNormal[1], -nextNormal[2])
             flip = 1
@@ -264,45 +292,42 @@ function addGeometry(vertices)
             # begin/end caps
             if ((!prevVertex && beginCap == CapType.Round) ||
                     (!nextVertex && endCap == CapType.Round)) 
-                point_store.emplace_back(e1)
+                push!(point_store, PointElement(e1))
             end
 
 
             if (currentJoin == JoinType.Round) 
                 if (prevVertex && nextVertex && (!closed || i > 0)) 
-                    point_store.emplace_back(e1)
+                    push!(point_store, PointElement(e1))
                 end
 
                 # Reset the previous vertices so that we don't accidentally create
                 # any triangles.
-                e1::Int32 = -1 
-                e2::Int32 = -1 
-                e3::Int32 = -1
+                e1 = -one(Int32) 
+                e2 = -one(Int32)  
+                e3 = -one(Int32) 
             end
 
             # Start the new quad.
             # Add first vertex
-            e3::Int32 = vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    -flip * nextNormal[2], flip * nextNormal[1], # extrude normal
-                                   0, 0, distance) - start_vertex # texture normal
+                                   0, 0, distance) - start_vertex)::Int32 # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
+            
+            e1 = e2::Int32 
+            e2 = e3::Int32
 
             # Add second vertex
-            e3::Int32 = vertexBuffer.add(currentVertex[1], currentVertex[2], # vertex pos
+            e3 = (add(vertexBuffer, currentVertex[1], currentVertex[2], # vertex pos
                                    flip * nextNormal[2], -flip * nextNormal[1], # extrude normal
-                                   0, 1, distance) - start_vertex # texture normal
+                                   0, 1, distance) - start_vertex)::Int32 # texture normal
 
-            if (e1 >= 0 && e2 >= 0 && e3 >= 0) 
-                triangle_store.emplace_back(e1, e2, e3)
-            end
+            (e1 >= 0 && e2 >= 0 && e3 >= 0) && push!(triangle_store, Triangle(e1, e2, e3))
 
-            e1::Int32 = e2 
-            e2::Int32 = e3
+            e1 = e2::Int32 
+            e2 = e3::Int32
         end
     end
 
@@ -318,7 +343,7 @@ function addGeometry(vertices)
 
         group = last(triangleGroups)
         for triangle in triangle_store 
-            triangleElementsBuffer.add(
+            add(triangleElementsBuffer, 
                 group.vertex_length + triangle.a,
                 group.vertex_length + triangle.b,
                 group.vertex_length + triangle.c
@@ -326,7 +351,7 @@ function addGeometry(vertices)
         end
 
         group.vertex_length += vertex_count
-        group.elements_length += triangle_store.size()
+        group.elements_length += length(triangle_store)
     end
 
     # Store the line join/cap groups.
@@ -337,11 +362,11 @@ function addGeometry(vertices)
         end
 
         group = last(pointGroups)
-        for (PointElement point : point_store) 
-            pointElementsBuffer.add(group.vertex_length + point)
+        for point in point_store
+            add(pointElementsBuffer, group.vertex_length + point)
         end
 
         group.vertex_length += vertex_count
-        group.elements_length += point_store.size()
+        group.elements_length += length(point_store)
     end
 end
